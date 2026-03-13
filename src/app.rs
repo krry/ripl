@@ -51,6 +51,7 @@ pub struct App {
     pub scaffold_choice: Option<ScaffoldChoice>,
     pub history_offset: usize,
     pub provider_label: Option<String>,
+    pub dev_mode: bool,
 }
 
 impl App {
@@ -97,6 +98,7 @@ impl App {
             scaffold_choice: None,
             history_offset: 0,
             provider_label: None,
+            dev_mode: false,
         }
     }
 
@@ -381,6 +383,15 @@ impl App {
                 self.messages.push("/voice [off|say|espeak|fish] — TTS mode".to_string());
                 self.messages.push("/stt [off|whisper|fish] — STT mode".to_string());
                 self.messages.push("/ptt [on|off] — push-to-talk".to_string());
+                self.messages.push("/dev [on|off] — toggle chrome".to_string());
+            }
+            "/dev" => {
+                let arg = parts.get(1).map(|s| s.trim()).unwrap_or("toggle");
+                match arg {
+                    "on" => { self.dev_mode = true; }
+                    "off" => { self.dev_mode = false; }
+                    _ => { self.dev_mode = !self.dev_mode; }
+                }
             }
             _ => {
                 self.messages.push(format!("unknown command: {}  (try /help)", parts[0]));
@@ -441,14 +452,7 @@ impl App {
             ApiResponse::TurnComplete => {
                 if self.streaming {
                     self.streaming = false;
-                    self.extract_ouracle_session();
-                    // Strip session markers before storing as assistant content.
-                    let content = self.assistant_buffer
-                        .split('\x00')
-                        .next()
-                        .unwrap_or("")
-                        .trim()
-                        .to_string();
+                    let content = self.assistant_buffer.trim().to_string();
                     if !content.is_empty() {
                         self.conversation.push(Message { role: Role::Assistant, content: content.clone() });
                         self.session_dirty = true;
@@ -467,17 +471,10 @@ impl App {
     }
 
     fn update_streaming_line(&mut self) {
-        // Strip any Ouracle session markers from the display buffer.
-        let display = self.assistant_buffer
-            .split('\x00')
-            .next()
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        let line = if display.is_empty() {
+        let line = if self.assistant_buffer.trim().is_empty() {
             String::new()
         } else {
-            format!("Assistant: {}", display)
+            format!("Assistant: {}", self.assistant_buffer.trim())
         };
         if let Some(last) = self.messages.last_mut() {
             if last.starts_with("Assistant:") {
@@ -487,27 +484,6 @@ impl App {
         }
         if !line.is_empty() {
             self.messages.push(line);
-        }
-    }
-
-    /// If the assistant buffer contains an Ouracle session marker, extract and
-    /// record the session_id as a System message so subsequent turns include it.
-    fn extract_ouracle_session(&mut self) {
-        let content = self.assistant_buffer.clone();
-        if let Some(marker_start) = content.find('\x00') {
-            let marker = &content[marker_start + 1..];
-            if marker.starts_with("ouracle:session:") {
-                let sid = marker["ouracle:session:".len()..].trim().to_string();
-                // Replace or insert the session marker in the conversation.
-                let marker_content = format!("ouracle:session:{}", sid);
-                if let Some(existing) = self.conversation.iter_mut().find(|m| {
-                    m.role == Role::System && m.content.starts_with("ouracle:session:")
-                }) {
-                    existing.content = marker_content;
-                } else {
-                    self.conversation.push(Message { role: Role::System, content: marker_content });
-                }
-            }
         }
     }
 

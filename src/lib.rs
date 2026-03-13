@@ -63,6 +63,9 @@ pub fn run_in_terminal(
     let provider = override_provider.or_else(|| build_provider(&cfg));
 
     let mut app = App::new();
+    if std::env::var("RIPL_DEV").is_ok() {
+        app.dev_mode = true;
+    }
     app.tts_mode = match resolve_tts_mode(&cfg).as_str() {
         "fish" => speech::TtsMode::Fish,
         "espeak" => speech::TtsMode::Espeak,

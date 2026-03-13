@@ -22,7 +22,7 @@ mod theme;
 mod ui;
 
 use crate::app::{App, AppMode};
-use crate::providers::{build_provider, Message, Role};
+use crate::providers::{build_provider, resolve_provider, Message, Role};
 use crate::config::scaffold_bootstrap_enabled;
 use crate::config::{resolve_fish_voice_id, resolve_stt_mode, resolve_tts_mode};
 
@@ -86,6 +86,9 @@ fn app_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()>
         .unwrap_or(true);
     if provider.is_some() {
         app.mode = AppMode::Ready;
+    }
+    if let Some(resolved) = resolve_provider(&cfg) {
+        app.provider_label = Some(format!("{} / {}", resolved.kind_name(), resolved.model));
     }
     // Prepend scaffold context as system message (always fresh from CWD files).
     if let Some(ctx) = scaffold::load_context() {

@@ -44,6 +44,16 @@ pub struct ProviderResolved {
     pub model: String,
 }
 
+impl ProviderResolved {
+    pub fn kind_name(&self) -> &'static str {
+        match self.kind {
+            ProviderKind::Anthropic => "anthropic",
+            ProviderKind::OpenAi => "openai",
+            ProviderKind::OpenRouter => "openrouter",
+        }
+    }
+}
+
 pub fn resolve_provider(cfg: &Config) -> Option<ProviderResolved> {
     let name = resolve_provider_name(cfg)?;
     let api_key = resolve_provider_key(cfg)?;

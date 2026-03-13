@@ -31,7 +31,17 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     app.aura.render(frame, size, app.voice_intensity);
 
     frame.render_widget(Clear, status_area);
-    let status = format!("mode={:?}", app.mode);
+    let status = {
+        let mut parts = Vec::new();
+        if let Some(label) = &app.provider_label {
+            parts.push(label.clone());
+        } else {
+            parts.push("no provider — run: ripl pair anthropic".to_string());
+        }
+        if app.stt_recording { parts.push("● rec".to_string()); }
+        else if app.stt_transcribing { parts.push("… stt".to_string()); }
+        parts.join("  ·  ")
+    };
     let status_widget = Paragraph::new(status)
         .block(Block::default().borders(Borders::ALL).title("RIPL"))
         .style(Style::default().fg(text_secondary()))

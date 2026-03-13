@@ -50,6 +50,7 @@ pub struct App {
     pub scaffold_prompt: Option<ScaffoldChoice>,
     pub scaffold_choice: Option<ScaffoldChoice>,
     pub history_offset: usize,
+    pub provider_label: Option<String>,
 }
 
 impl App {
@@ -95,6 +96,7 @@ impl App {
             scaffold_prompt: None,
             scaffold_choice: None,
             history_offset: 0,
+            provider_label: None,
         }
     }
 
@@ -122,12 +124,16 @@ impl App {
                             let line = self.input.trim().to_string();
                             self.input.clear();
                             if !line.is_empty() {
-                                self.messages.push(format!("You: {}", line));
-                                self.conversation.push(Message { role: Role::User, content: line.clone() });
-                                self.outgoing = Some(line);
-                                self.mode = AppMode::Pending;
-                                self.session_dirty = true;
-                                self.history_offset = 0;
+                                if line.starts_with('/') {
+                                    self.handle_command(&line);
+                                } else {
+                                    self.messages.push(format!("You: {}", line));
+                                    self.conversation.push(Message { role: Role::User, content: line.clone() });
+                                    self.outgoing = Some(line);
+                                    self.mode = AppMode::Pending;
+                                    self.session_dirty = true;
+                                    self.history_offset = 0;
+                                }
                             }
                         }
                         KeyCode::Backspace => {
@@ -147,6 +153,21 @@ impl App {
 
     pub fn on_tick(&mut self, delta: Duration) {
         self.aura.tick(delta);
+
+        // Voice intensity — smooth approach to target based on current state.
+        let voice_target: f32 = if self.stt_recording {
+            0.0   // listening: aura quiets down (inward ripples say enough)
+        } else if self.stt_transcribing {
+            0.35  // processing speech: gentle aura activity
+        } else if self.streaming || matches!(self.mode, AppMode::Streaming) {
+            0.75  // response arriving: aura alive
+        } else if matches!(self.mode, AppMode::Pending) {
+            0.4   // waiting: moderate activity
+        } else {
+            0.0   // idle
+        };
+        let factor = 1.0 - (-delta.as_secs_f32() * 3.0_f32).exp();
+        self.voice_intensity = (self.voice_intensity + factor * (voice_target - self.voice_intensity)).clamp(0.0, 1.0);
 
         // Tick-based Space PTT release inference (for terminals without KeyRelease).
         if self.ptt_space_down {
@@ -309,6 +330,60 @@ impl App {
                     self.input.push(' ');
                 }
                 true
+            }
+        }
+    }
+
+    fn handle_command(&mut self, cmd: &str) {
+        let parts: Vec<&str> = cmd.splitn(2, ' ').collect();
+        match parts[0] {
+            "/clear" => {
+                self.messages.clear();
+                self.conversation.retain(|m| m.role == Role::System);
+                self.session_dirty = true;
+                self.history_offset = 0;
+            }
+            "/voice" => {
+                let arg = parts.get(1).map(|s| s.trim()).unwrap_or("");
+                match arg {
+                    "off" => { self.tts_mode = crate::speech::TtsMode::Off; }
+                    "say" => { self.tts_mode = crate::speech::TtsMode::Say; }
+                    "espeak" => { self.tts_mode = crate::speech::TtsMode::Espeak; }
+                    "fish" => { self.tts_mode = crate::speech::TtsMode::Fish; }
+                    _ => {
+                        self.messages.push("voice: off | say | espeak | fish".to_string());
+                    }
+                }
+            }
+            "/stt" => {
+                let arg = parts.get(1).map(|s| s.trim()).unwrap_or("");
+                match arg {
+                    "off" => { self.stt_mode = crate::speech::SttMode::Off; }
+                    "whisper" => { self.stt_mode = crate::speech::SttMode::Whisper; }
+                    "fish" => { self.stt_mode = crate::speech::SttMode::Fish; }
+                    _ => {
+                        self.messages.push("stt: off | whisper | fish".to_string());
+                    }
+                }
+            }
+            "/ptt" => {
+                let arg = parts.get(1).map(|s| s.trim()).unwrap_or("");
+                match arg {
+                    "on" => { self.push_to_talk = true; }
+                    "off" => { self.push_to_talk = false; }
+                    _ => {
+                        self.messages.push(format!("ptt: {}", if self.push_to_talk { "on" } else { "off" }));
+                    }
+                }
+            }
+            "/help" => {
+                self.messages.push("/clear — clear thread".to_string());
+                self.messages.push("/voice [off|say|espeak|fish] — TTS mode".to_string());
+                self.messages.push("/stt [off|whisper|fish] — STT mode".to_string());
+                self.messages.push("/ptt [on|off] — push-to-talk".to_string());
+            }
+            _ => {
+                self.messages.push(format!("unknown command: {}  (try /help)", parts[0]));
             }
         }
     }

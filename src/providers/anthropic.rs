@@ -46,7 +46,7 @@ impl Provider for AnthropicProvider {
         }
 
         let payload = json!({
-            "model": if self.model == "default" { "claude-3-5-sonnet-20240620" } else { &self.model },
+            "model": if self.model == "default" { "claude-sonnet-4-6" } else { &self.model },
             "max_tokens": 1024,
             "stream": true,
             "system": system,

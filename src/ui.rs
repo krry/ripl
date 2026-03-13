@@ -40,11 +40,16 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     let wrap_width = main_area.width.saturating_sub(2) as usize;
     let wrapped_lines = wrap_messages(&app.messages, wrap_width);
+    let history_lines = wrapped_lines.len();
+    let visible_lines = main_area.height.saturating_sub(2) as usize;
+    let max_offset = history_lines.saturating_sub(visible_lines);
+    let scroll = max_offset.saturating_sub(app.history_offset.min(max_offset)) as u16;
     let history = wrapped_lines.join("\n");
     let history_widget = Paragraph::new(history)
         .block(Block::default().borders(Borders::ALL).title("Thread"))
         .style(Style::default().fg(text_primary()))
-        .wrap(Wrap { trim: false });
+        .wrap(Wrap { trim: false })
+        .scroll((scroll, 0));
     frame.render_widget(Clear, main_area);
     frame.render_widget(history_widget, main_area);
 

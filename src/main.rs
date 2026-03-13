@@ -22,7 +22,7 @@ mod theme;
 mod ui;
 
 use crate::app::{App, AppMode};
-use crate::providers::build_provider;
+use crate::providers::{build_provider, Message, Role};
 use crate::config::scaffold_bootstrap_enabled;
 use crate::config::{resolve_fish_voice_id, resolve_stt_mode, resolve_tts_mode};
 
@@ -87,14 +87,19 @@ fn app_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()>
     if provider.is_some() {
         app.mode = AppMode::Ready;
     }
+    // Prepend scaffold context as system message (always fresh from CWD files).
+    if let Some(ctx) = scaffold::load_context() {
+        app.conversation.push(Message { role: Role::System, content: ctx });
+    }
     if let Some(cache) = session::load() {
-        app.conversation = cache.conversation.clone();
+        // Session only contains user/assistant messages (system filtered on save).
         for msg in &cache.conversation {
             let label = match msg.role {
-                crate::providers::Role::User => "You",
-                crate::providers::Role::Assistant => "Assistant",
-                crate::providers::Role::System => "System",
+                Role::User => "You",
+                Role::Assistant => "Assistant",
+                Role::System => continue,
             };
+            app.conversation.push(msg.clone());
             app.messages.push(format!("{label}: {}", msg.content));
         }
     }

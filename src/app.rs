@@ -49,6 +49,7 @@ pub struct App {
     pub stt_ripple_accum_ms: f32,
     pub scaffold_prompt: Option<ScaffoldChoice>,
     pub scaffold_choice: Option<ScaffoldChoice>,
+    pub history_offset: usize,
 }
 
 impl App {
@@ -93,6 +94,7 @@ impl App {
             stt_ripple_accum_ms: 0.0,
             scaffold_prompt: None,
             scaffold_choice: None,
+            history_offset: 0,
         }
     }
 
@@ -107,6 +109,15 @@ impl App {
                         return true;
                     }
                     match code {
+                        KeyCode::PageUp => {
+                            self.history_offset = self.history_offset.saturating_add(5);
+                        }
+                        KeyCode::PageDown => {
+                            self.history_offset = self.history_offset.saturating_sub(5);
+                        }
+                        KeyCode::End => {
+                            self.history_offset = 0;
+                        }
                         KeyCode::Enter => {
                             let line = self.input.trim().to_string();
                             self.input.clear();
@@ -116,6 +127,7 @@ impl App {
                                 self.outgoing = Some(line);
                                 self.mode = AppMode::Pending;
                                 self.session_dirty = true;
+                                self.history_offset = 0;
                             }
                         }
                         KeyCode::Backspace => {

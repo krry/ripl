@@ -53,7 +53,7 @@ pub fn resolve_provider(cfg: &Config) -> Option<ProviderResolved> {
         .and_then(|p| p.model.clone())
         .unwrap_or_else(|| {
             match name.as_str() {
-                "anthropic" => "claude-3-5-sonnet-20240620",
+                "anthropic" => "claude-sonnet-4-6",
                 "openai" => "gpt-4o-mini",
                 "openrouter" => "openai/gpt-4o-mini",
                 _ => "default",

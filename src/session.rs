@@ -24,7 +24,18 @@ pub fn save(cache: &SessionCache) {
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);
     }
-    if let Ok(raw) = serde_json::to_string_pretty(cache) {
+    // Filter system messages — scaffold context is reloaded fresh on each launch.
+    let filtered = SessionCache {
+        conversation: cache
+            .conversation
+            .iter()
+            .filter(|m| m.role != crate::providers::Role::System)
+            .cloned()
+            .collect(),
+        provider: cache.provider.clone(),
+        model: cache.model.clone(),
+    };
+    if let Ok(raw) = serde_json::to_string_pretty(&filtered) {
         let _ = fs::write(path, raw);
     }
 }

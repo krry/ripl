@@ -2,6 +2,29 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+/// Load scaffold files from CWD and return combined context string for system prompt.
+pub fn load_context() -> Option<String> {
+    let files = [
+        PathBuf::from("README.md"),
+        PathBuf::from(".claude/CLAUDE.md"),
+        PathBuf::from("skills/README.md"),
+    ];
+    let mut parts = Vec::new();
+    for path in &files {
+        if let Ok(content) = fs::read_to_string(path) {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                parts.push(format!("# {}\n\n{}", path.display(), trimmed));
+            }
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n\n---\n\n"))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScaffoldChoice {
     Leave,

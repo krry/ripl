@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 mod anthropic;
 mod openai;
 mod openrouter;
+pub mod ouracle;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Role {
@@ -36,6 +37,7 @@ pub enum ProviderKind {
     Anthropic,
     OpenAi,
     OpenRouter,
+    Ouracle,
 }
 
 pub struct ProviderResolved {
@@ -50,6 +52,7 @@ impl ProviderResolved {
             ProviderKind::Anthropic => "anthropic",
             ProviderKind::OpenAi => "openai",
             ProviderKind::OpenRouter => "openrouter",
+            ProviderKind::Ouracle => "ouracle",
         }
     }
 }
@@ -66,6 +69,7 @@ pub fn resolve_provider(cfg: &Config) -> Option<ProviderResolved> {
                 "anthropic" => "claude-sonnet-4-6",
                 "openai" => "gpt-4o-mini",
                 "openrouter" => "openai/gpt-4o-mini",
+                "ouracle" => "http://127.0.0.1:3737",
                 _ => "default",
             }
             .to_string()
@@ -75,6 +79,7 @@ pub fn resolve_provider(cfg: &Config) -> Option<ProviderResolved> {
         "anthropic" => ProviderKind::Anthropic,
         "openai" => ProviderKind::OpenAi,
         "openrouter" => ProviderKind::OpenRouter,
+        "ouracle" => ProviderKind::Ouracle,
         _ => return None,
     };
 
@@ -95,6 +100,10 @@ pub fn build_provider(cfg: &Config) -> Option<Arc<dyn Provider>> {
         ProviderKind::OpenRouter => Arc::new(openrouter::OpenRouterProvider {
             api_key: resolved.api_key,
             model: resolved.model,
+        }),
+        ProviderKind::Ouracle => Arc::new(ouracle::OuracleProvider {
+            access_token: resolved.api_key,
+            base_url: resolved.model, // model field holds the base URL for Ouracle
         }),
     };
     Some(provider)

@@ -441,7 +441,14 @@ impl App {
             ApiResponse::TurnComplete => {
                 if self.streaming {
                     self.streaming = false;
-                    let content = self.assistant_buffer.trim().to_string();
+                    self.extract_ouracle_session();
+                    // Strip session markers before storing as assistant content.
+                    let content = self.assistant_buffer
+                        .split('\x00')
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
                     if !content.is_empty() {
                         self.conversation.push(Message { role: Role::Assistant, content: content.clone() });
                         self.session_dirty = true;
@@ -460,10 +467,17 @@ impl App {
     }
 
     fn update_streaming_line(&mut self) {
-        let line = if self.assistant_buffer.trim().is_empty() {
+        // Strip any Ouracle session markers from the display buffer.
+        let display = self.assistant_buffer
+            .split('\x00')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let line = if display.is_empty() {
             String::new()
         } else {
-            format!("Assistant: {}", self.assistant_buffer.trim())
+            format!("Assistant: {}", display)
         };
         if let Some(last) = self.messages.last_mut() {
             if last.starts_with("Assistant:") {
@@ -473,6 +487,27 @@ impl App {
         }
         if !line.is_empty() {
             self.messages.push(line);
+        }
+    }
+
+    /// If the assistant buffer contains an Ouracle session marker, extract and
+    /// record the session_id as a System message so subsequent turns include it.
+    fn extract_ouracle_session(&mut self) {
+        let content = self.assistant_buffer.clone();
+        if let Some(marker_start) = content.find('\x00') {
+            let marker = &content[marker_start + 1..];
+            if marker.starts_with("ouracle:session:") {
+                let sid = marker["ouracle:session:".len()..].trim().to_string();
+                // Replace or insert the session marker in the conversation.
+                let marker_content = format!("ouracle:session:{}", sid);
+                if let Some(existing) = self.conversation.iter_mut().find(|m| {
+                    m.role == Role::System && m.content.starts_with("ouracle:session:")
+                }) {
+                    existing.content = marker_content;
+                } else {
+                    self.conversation.push(Message { role: Role::System, content: marker_content });
+                }
+            }
         }
     }
 

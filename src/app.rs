@@ -3,9 +3,10 @@ use std::process::Child;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, MouseEventKind};
+use ratatui::layout::Rect;
 
-use crate::aura::Aura;
+use crate::aura::{Aura, AuraGlyphMode};
 use crate::providers::{ApiResponse, Message, Role};
 use crate::scaffold::ScaffoldChoice;
 use crate::speech::{fish, TtsMode, SttMode};
@@ -53,6 +54,12 @@ pub struct App {
     pub history_offset: usize,
     pub provider_label: Option<String>,
     pub dev_mode: bool,
+    pub pace: f32,
+    pub auto_hue: bool,
+    pub mouse_capture: bool,
+    pub mouse_capture_dirty: bool,
+    pub last_aura_area: Option<Rect>,
+    root_hue_f32: f32,
 }
 
 impl App {
@@ -101,6 +108,12 @@ impl App {
             history_offset: 0,
             provider_label: None,
             dev_mode: false,
+            pace: pace_to_scalar(5),
+            auto_hue: true,
+            mouse_capture: true,
+            mouse_capture_dirty: false,
+            last_aura_area: None,
+            root_hue_f32: crate::theme::current_root_hue() as f32,
         }
     }
 
@@ -150,6 +163,22 @@ impl App {
                     }
                 }
             }
+            Event::Mouse(mouse) => {
+                match mouse.kind {
+                    MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+                        if let Some(area) = self.last_aura_area {
+                            self.aura.launch_ripple_at(mouse.column, mouse.row, area, self.pace);
+                        }
+                    }
+                    MouseEventKind::ScrollUp => {
+                        self.history_offset = self.history_offset.saturating_add(3);
+                    }
+                    MouseEventKind::ScrollDown => {
+                        self.history_offset = self.history_offset.saturating_sub(3);
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
         }
         false
@@ -157,6 +186,11 @@ impl App {
 
     pub fn on_tick(&mut self, delta: Duration) {
         self.aura.tick(delta);
+
+        if self.auto_hue {
+            self.root_hue_f32 = (self.root_hue_f32 + delta.as_secs_f32() * 24.0) % 360.0;
+            crate::theme::set_root_hue(self.root_hue_f32.round() as u16);
+        }
 
         // Voice intensity — smooth approach to target based on current state.
         let voice_target: f32 = if self.stt_recording {
@@ -388,9 +422,73 @@ impl App {
                     }
                 }
             }
+            "/set" => {
+                let subparts: Vec<&str> = parts.get(1).unwrap_or(&"").split_whitespace().collect();
+                let key = subparts.first().copied().unwrap_or("");
+                let val = subparts.get(1).copied().unwrap_or("");
+                match key {
+                    "color" => {
+                        match val.parse::<u16>() {
+                            Ok(v) if (1..=360).contains(&v) => {
+                                crate::theme::set_root_hue(v);
+                                self.root_hue_f32 = v as f32;
+                                self.auto_hue = false;
+                                self.messages.push(format!("color → {}", v));
+                            }
+                            _ => { self.messages.push("usage: /set color <1-360>".to_string()); }
+                        }
+                    }
+                    "pace" => {
+                        match val.parse::<u8>() {
+                            Ok(v) if (1..=10).contains(&v) => {
+                                self.pace = pace_to_scalar(v);
+                                self.messages.push(format!("pace → {}", v));
+                            }
+                            _ => { self.messages.push("usage: /set pace <1-10>".to_string()); }
+                        }
+                    }
+                    "glyphs" => {
+                        let mode = match val {
+                            "braille"  => Some(AuraGlyphMode::Braille),
+                            "taz"      => Some(AuraGlyphMode::Taz),
+                            "math"     => Some(AuraGlyphMode::Math),
+                            "mahjong"  => Some(AuraGlyphMode::Mahjong),
+                            "dominoes" => Some(AuraGlyphMode::Dominoes),
+                            "cards"    => Some(AuraGlyphMode::Cards),
+                            _ => None,
+                        };
+                        match mode {
+                            Some(m) => {
+                                self.aura.set_glyph_mode(m);
+                                self.messages.push(format!("glyphs → {}", val));
+                            }
+                            None => { self.messages.push("usage: /set glyphs braille|taz|math|mahjong|dominoes|cards".to_string()); }
+                        }
+                    }
+                    _ => { self.messages.push("usage: /set color|pace|glyphs <value>".to_string()); }
+                }
+            }
+            "/mouse" => {
+                let arg = parts.get(1).map(|s| s.trim()).unwrap_or("");
+                match arg {
+                    "on" => {
+                        self.mouse_capture = true;
+                        self.mouse_capture_dirty = true;
+                    }
+                    "off" => {
+                        self.mouse_capture = false;
+                        self.mouse_capture_dirty = true;
+                    }
+                    _ => {
+                        self.messages.push(format!("mouse: {}", if self.mouse_capture { "on" } else { "off" }));
+                    }
+                }
+            }
             "/help" => {
                 self.messages.push("/clear — clear thread".to_string());
                 self.messages.push("/reset — clear thread and start new session".to_string());
+                self.messages.push("/set color <1-360> | pace <1-10> | glyphs braille|taz|math|mahjong|dominoes|cards".to_string());
+                self.messages.push("/mouse [on|off] — mouse click ripples".to_string());
                 self.messages.push("/voice [off|say|espeak|fish] — TTS mode".to_string());
                 self.messages.push("/stt [off|whisper|fish] — STT mode".to_string());
                 self.messages.push("/ptt [on|off] — push-to-talk".to_string());
@@ -521,4 +619,9 @@ impl App {
             }
         }
     }
+}
+
+fn pace_to_scalar(pace: u8) -> f32 {
+    let p = pace.clamp(1, 10) as f32;
+    0.6 + (p - 1.0) * (2.4 - 0.6) / 9.0
 }

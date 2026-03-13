@@ -8,80 +8,141 @@ use ratatui::{
 use textwrap::wrap;
 
 use crate::app::{App, AppMode};
+use crate::providers::Role;
 use crate::scaffold::ScaffoldChoice;
 use crate::theme::{text_accent, text_fade, text_primary, text_secondary, text_warning};
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let size = frame.size();
-
-    let inner = size.inner(&Margin { vertical: 3, horizontal: 3 });
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(3),
-            Constraint::Length(3),
-        ])
-        .split(inner);
-
-    let status_area = chunks[0];
-    let main_area = chunks[1];
-    let input_area = chunks[2];
+    app.last_aura_area = Some(size);
 
     app.aura.render(frame, size, app.voice_intensity);
 
-    frame.render_widget(Clear, status_area);
-    let status = {
-        let mut parts = Vec::new();
-        if let Some(label) = &app.provider_label {
-            parts.push(label.clone());
-        } else {
-            parts.push("no provider — run: ripl pair anthropic".to_string());
-        }
-        if app.stt_recording { parts.push("● rec".to_string()); }
-        else if app.stt_transcribing { parts.push("… stt".to_string()); }
-        parts.join("  ·  ")
-    };
-    let status_widget = Paragraph::new(status)
-        .block(Block::default().borders(Borders::ALL).title("RIPL"))
-        .style(Style::default().fg(text_secondary()))
-        .wrap(Wrap { trim: true });
-    frame.render_widget(status_widget, status_area);
+    if app.dev_mode {
+        let inner = size.inner(&Margin { vertical: 3, horizontal: 3 });
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Min(3),
+                Constraint::Length(3),
+            ])
+            .split(inner);
 
-    let wrap_width = main_area.width.saturating_sub(2) as usize;
-    let wrapped_lines = wrap_messages(&app.messages, wrap_width);
-    let history_lines = wrapped_lines.len();
-    let visible_lines = main_area.height.saturating_sub(2) as usize;
-    let max_offset = history_lines.saturating_sub(visible_lines);
-    let scroll = max_offset.saturating_sub(app.history_offset.min(max_offset)) as u16;
-    let history = wrapped_lines.join("\n");
-    let history_widget = Paragraph::new(history)
-        .block(Block::default().borders(Borders::ALL).title("Thread"))
-        .style(Style::default().fg(text_primary()))
-        .wrap(Wrap { trim: false })
-        .scroll((scroll, 0));
-    frame.render_widget(Clear, main_area);
-    frame.render_widget(history_widget, main_area);
+        let status_area = chunks[0];
+        let main_area = chunks[1];
+        let input_area = chunks[2];
 
-    frame.render_widget(Clear, input_area);
-    let input_widget = Paragraph::new(input_line(app))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(match app.mode {
-                    AppMode::Setup => "Setup",
-                    AppMode::Ready => "Ready",
-                    AppMode::Pending => "Pending",
-                    AppMode::Streaming => "Streaming",
-                })
-                .border_style(Style::default().fg(text_accent())),
-        )
-        .style(Style::default().fg(text_primary()));
-    frame.render_widget(input_widget, input_area);
+        frame.render_widget(Clear, status_area);
+        let status = {
+            let mut parts = Vec::new();
+            if let Some(label) = &app.provider_label {
+                parts.push(label.clone());
+            } else {
+                parts.push("no provider — run: ripl pair anthropic".to_string());
+            }
+            if app.stt_recording { parts.push("● rec".to_string()); }
+            else if app.stt_transcribing { parts.push("… stt".to_string()); }
+            parts.join("  ·  ")
+        };
+        let status_widget = Paragraph::new(status)
+            .block(Block::default().borders(Borders::ALL).title("RIPL"))
+            .style(Style::default().fg(text_secondary()))
+            .wrap(Wrap { trim: true });
+        frame.render_widget(status_widget, status_area);
 
-    let x = input_area.x + 1 + app.input.chars().count() as u16;
-    let y = input_area.y + 1;
-    frame.set_cursor(x, y);
+        let wrap_width = main_area.width.saturating_sub(2) as usize;
+        let wrapped_lines = wrap_messages(&app.messages, wrap_width);
+        let history_lines = wrapped_lines.len();
+        let visible_lines = main_area.height.saturating_sub(2) as usize;
+        let max_offset = history_lines.saturating_sub(visible_lines);
+        let scroll = max_offset.saturating_sub(app.history_offset.min(max_offset)) as u16;
+        let history = wrapped_lines.join("\n");
+        let history_widget = Paragraph::new(history)
+            .block(Block::default().borders(Borders::ALL).title("Thread"))
+            .style(Style::default().fg(text_primary()))
+            .wrap(Wrap { trim: false })
+            .scroll((scroll, 0));
+        frame.render_widget(Clear, main_area);
+        frame.render_widget(history_widget, main_area);
+
+        frame.render_widget(Clear, input_area);
+        let input_widget = Paragraph::new(input_line(app))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(match app.mode {
+                        AppMode::Setup => "Setup",
+                        AppMode::Ready => "Ready",
+                        AppMode::Pending => "Pending",
+                        AppMode::Streaming => "Streaming",
+                    })
+                    .border_style(Style::default().fg(text_accent())),
+            )
+            .style(Style::default().fg(text_primary()));
+        frame.render_widget(input_widget, input_area);
+
+        let x = input_area.x + 1 + app.input.chars().count() as u16;
+        let y = input_area.y + 1;
+        frame.set_cursor(x, y);
+    } else {
+        let max_width = 80u16.min(size.width.saturating_sub(2));
+        let max_height = 24u16.min(size.height.saturating_sub(2));
+        let start_x = size.x + (size.width.saturating_sub(max_width)) / 2;
+        let start_y = size.y + (size.height.saturating_sub(max_height)) / 2;
+
+        let center_area = ratatui::layout::Rect {
+            x: start_x,
+            y: start_y,
+            width: max_width,
+            height: max_height,
+        };
+
+        let center_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(12), Constraint::Length(1), Constraint::Length(11)])
+            .split(center_area);
+
+        let priestess_area = center_chunks[0];
+        let seeker_area = center_chunks[2];
+
+        let assistant_line = app
+            .conversation
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::Assistant)
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
+        let wrap_width = priestess_area.width as usize;
+        let wrapped_lines = wrap_messages(&[assistant_line], wrap_width);
+        draw_centered_lines_sparse(frame, priestess_area, &wrapped_lines, text_secondary(), true);
+
+        let seeker_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(1)])
+            .split(seeker_area);
+        let input_area = seeker_chunks[0];
+        let submissions_area = seeker_chunks[1];
+
+        draw_centered_line_with_suffix(frame, input_area, &app.input, text_primary(), stt_status_tag(app));
+
+        let user_line = app
+            .conversation
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::User)
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
+        let submissions = if user_line.is_empty() { Vec::new() } else { vec![user_line] };
+        draw_centered_lines_sparse(frame, submissions_area, &submissions, text_primary(), false);
+
+        let input_len = app.input.chars().count();
+        let width = input_area.width as usize;
+        let pad = width.saturating_sub(input_len) / 2;
+        let x = input_area.x + pad as u16 + input_len as u16;
+        let y = input_area.y;
+        draw_cursor_glyph(frame, x, y, text_accent());
+    }
 
     if let Some(selected) = app.scaffold_prompt {
         draw_scaffold_prompt(frame, selected);
@@ -172,4 +233,93 @@ fn option_line(label: &str, key: char, selected: bool) -> String {
     } else {
         format!("  [{key}] {label}")
     }
+}
+
+fn draw_centered_lines_sparse(
+    frame: &mut Frame,
+    area: ratatui::layout::Rect,
+    lines: &[String],
+    color: ratatui::style::Color,
+    bottom_align: bool,
+) {
+    let buf = frame.buffer_mut();
+    let height = area.height as usize;
+    let start_row = if bottom_align && lines.len() < height {
+        height - lines.len()
+    } else {
+        0
+    };
+
+    for (i, line) in lines.iter().enumerate() {
+        let row = start_row + i;
+        if row >= height {
+            break;
+        }
+        let len = line.chars().count();
+        let pad = (area.width as usize).saturating_sub(len) / 2;
+        let y = area.y + row as u16;
+        let mut x = area.x + pad as u16;
+        for ch in line.chars() {
+            if x >= area.x.saturating_add(area.width) {
+                break;
+            }
+            let cell = buf.get_mut(x, y);
+            let mut symbol_buf = [0u8; 4];
+            let symbol = ch.encode_utf8(&mut symbol_buf);
+            cell.set_symbol(symbol);
+            cell.set_style(Style::default().fg(color));
+            x += 1;
+        }
+    }
+}
+
+fn draw_centered_line_with_suffix(
+    frame: &mut Frame,
+    area: ratatui::layout::Rect,
+    line: &str,
+    color: ratatui::style::Color,
+    suffix: Option<(String, ratatui::style::Color)>,
+) {
+    let suffix_text = suffix
+        .as_ref()
+        .map(|(text, _)| format!(" {}", text))
+        .unwrap_or_default();
+    let full_len = line.chars().count() + suffix_text.chars().count();
+    let pad = (area.width as usize).saturating_sub(full_len) / 2;
+    let y = area.y;
+    let mut x = area.x + pad as u16;
+    let buf = frame.buffer_mut();
+
+    for ch in line.chars() {
+        if x >= area.x.saturating_add(area.width) {
+            break;
+        }
+        let cell = buf.get_mut(x, y);
+        let mut symbol_buf = [0u8; 4];
+        let symbol = ch.encode_utf8(&mut symbol_buf);
+        cell.set_symbol(symbol);
+        cell.set_style(Style::default().fg(color));
+        x += 1;
+    }
+
+    if let Some((_, suffix_color)) = suffix {
+        for ch in suffix_text.chars() {
+            if x >= area.x.saturating_add(area.width) {
+                break;
+            }
+            let cell = buf.get_mut(x, y);
+            let mut symbol_buf = [0u8; 4];
+            let symbol = ch.encode_utf8(&mut symbol_buf);
+            cell.set_symbol(symbol);
+            cell.set_style(Style::default().fg(suffix_color));
+            x += 1;
+        }
+    }
+}
+
+fn draw_cursor_glyph(frame: &mut Frame, x: u16, y: u16, color: ratatui::style::Color) {
+    let buf = frame.buffer_mut();
+    let cell = buf.get_mut(x, y);
+    cell.set_symbol("▌");
+    cell.set_style(Style::default().fg(color));
 }

@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use color_eyre::eyre::Result;
 use crossterm::{
     event,
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -43,13 +44,13 @@ where
 {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
     let res = f(&mut terminal);
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     terminal.show_cursor()?;
     res
 }
@@ -127,6 +128,15 @@ pub fn run_in_terminal(
             }
             if app.on_event(&ev) {
                 return Ok(());
+            }
+        }
+
+        if app.mouse_capture_dirty {
+            app.mouse_capture_dirty = false;
+            if app.mouse_capture {
+                let _ = execute!(terminal.backend_mut(), EnableMouseCapture);
+            } else {
+                let _ = execute!(terminal.backend_mut(), DisableMouseCapture);
             }
         }
 

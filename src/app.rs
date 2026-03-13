@@ -27,6 +27,7 @@ pub struct App {
     pub aura: Aura,
     pub voice_intensity: f32,
     pub outgoing: Option<String>,
+    pub outgoing_command: Option<String>,
     pub stt_recording: bool,
     pub stt_transcribing: bool,
     pub stt_error: Option<String>,
@@ -74,6 +75,7 @@ impl App {
             aura: Aura::new(),
             voice_intensity: 0.0,
             outgoing: None,
+            outgoing_command: None,
             stt_recording: false,
             stt_transcribing: false,
             stt_error: None,
@@ -345,6 +347,14 @@ impl App {
                 self.session_dirty = true;
                 self.history_offset = 0;
             }
+            "/reset" => {
+                self.messages.clear();
+                self.conversation.retain(|m| m.role == Role::System);
+                self.session_dirty = true;
+                self.history_offset = 0;
+                self.outgoing_command = Some("/reset".to_string());
+                self.mode = AppMode::Pending;
+            }
             "/voice" => {
                 let arg = parts.get(1).map(|s| s.trim()).unwrap_or("");
                 match arg {
@@ -380,6 +390,7 @@ impl App {
             }
             "/help" => {
                 self.messages.push("/clear — clear thread".to_string());
+                self.messages.push("/reset — clear thread and start new session".to_string());
                 self.messages.push("/voice [off|say|espeak|fish] — TTS mode".to_string());
                 self.messages.push("/stt [off|whisper|fish] — STT mode".to_string());
                 self.messages.push("/ptt [on|off] — push-to-talk".to_string());
@@ -401,6 +412,10 @@ impl App {
 
     pub fn take_outgoing(&mut self) -> Option<String> {
         self.outgoing.take()
+    }
+
+    pub fn take_outgoing_command(&mut self) -> Option<String> {
+        self.outgoing_command.take()
     }
 
     pub fn handle_scaffold_input(&mut self, event: &Event) {

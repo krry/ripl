@@ -147,6 +147,15 @@ pub fn run_in_terminal(
             }
         }
 
+        if let Some(cmd) = app.take_outgoing_command() {
+            if let Some(p) = provider.clone() {
+                let tx = resp_tx.clone();
+                thread::spawn(move || {
+                    p.handle_command(&cmd, tx);
+                });
+            }
+        }
+
         while let Ok(resp) = resp_rx.try_recv() {
             app.handle_api_response(resp);
         }

@@ -447,25 +447,39 @@ impl App {
                             _ => { self.messages.push("usage: /set pace <1-10>".to_string()); }
                         }
                     }
-                    "glyphs" => {
-                        let mode = match val {
-                            "braille"  => Some(AuraGlyphMode::Braille),
-                            "taz"      => Some(AuraGlyphMode::Taz),
-                            "math"     => Some(AuraGlyphMode::Math),
-                            "mahjong"  => Some(AuraGlyphMode::Mahjong),
-                            "dominoes" => Some(AuraGlyphMode::Dominoes),
-                            "cards"    => Some(AuraGlyphMode::Cards),
-                            _ => None,
-                        };
-                        match mode {
-                            Some(m) => {
-                                self.aura.set_glyph_mode(m);
-                                self.messages.push(format!("glyphs → {}", val));
+                    "glyph" => {
+                        if val.is_empty() {
+                            let next = match self.aura.glyph_mode() {
+                                AuraGlyphMode::Braille  => AuraGlyphMode::Taz,
+                                AuraGlyphMode::Taz      => AuraGlyphMode::Math,
+                                AuraGlyphMode::Math     => AuraGlyphMode::Mahjong,
+                                AuraGlyphMode::Mahjong  => AuraGlyphMode::Dominoes,
+                                AuraGlyphMode::Dominoes => AuraGlyphMode::Cards,
+                                AuraGlyphMode::Cards    => AuraGlyphMode::Braille,
+                            };
+                            let name = glyph_mode_name(next);
+                            self.aura.set_glyph_mode(next);
+                            self.messages.push(format!("glyph → {}", name));
+                        } else {
+                            let mode = match val {
+                                "braille"  => Some(AuraGlyphMode::Braille),
+                                "taz"      => Some(AuraGlyphMode::Taz),
+                                "math"     => Some(AuraGlyphMode::Math),
+                                "mahjong"  => Some(AuraGlyphMode::Mahjong),
+                                "dominoes" => Some(AuraGlyphMode::Dominoes),
+                                "cards"    => Some(AuraGlyphMode::Cards),
+                                _ => None,
+                            };
+                            match mode {
+                                Some(m) => {
+                                    self.aura.set_glyph_mode(m);
+                                    self.messages.push(format!("glyph → {}", val));
+                                }
+                                None => { self.messages.push("usage: /set glyph [braille|taz|math|mahjong|dominoes|cards]".to_string()); }
                             }
-                            None => { self.messages.push("usage: /set glyphs braille|taz|math|mahjong|dominoes|cards".to_string()); }
                         }
                     }
-                    _ => { self.messages.push("usage: /set color|pace|glyphs <value>".to_string()); }
+                    _ => { self.messages.push("usage: /set color|pace|glyph <value>".to_string()); }
                 }
             }
             "/mouse" => {
@@ -487,7 +501,7 @@ impl App {
             "/help" => {
                 self.messages.push("/clear — clear thread".to_string());
                 self.messages.push("/reset — clear thread and start new session".to_string());
-                self.messages.push("/set color <1-360> | pace <1-10> | glyphs braille|taz|math|mahjong|dominoes|cards".to_string());
+                self.messages.push("/set color <1-360> | pace <1-10> | glyph [braille|taz|math|mahjong|dominoes|cards]".to_string());
                 self.messages.push("/mouse [on|off] — mouse click ripples".to_string());
                 self.messages.push("/voice [off|say|espeak|fish] — TTS mode".to_string());
                 self.messages.push("/stt [off|whisper|fish] — STT mode".to_string());
@@ -618,6 +632,17 @@ impl App {
                 self.tts_duration_rx = fish::spawn_fish_tts(text.to_string(), self.tts_voice_id.clone());
             }
         }
+    }
+}
+
+fn glyph_mode_name(mode: AuraGlyphMode) -> &'static str {
+    match mode {
+        AuraGlyphMode::Braille  => "braille",
+        AuraGlyphMode::Taz      => "taz",
+        AuraGlyphMode::Math     => "math",
+        AuraGlyphMode::Mahjong  => "mahjong",
+        AuraGlyphMode::Dominoes => "dominoes",
+        AuraGlyphMode::Cards    => "cards",
     }
 }
 

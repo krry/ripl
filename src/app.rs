@@ -188,7 +188,7 @@ impl App {
         self.aura.tick(delta);
 
         if self.auto_hue {
-            self.root_hue_f32 = (self.root_hue_f32 + delta.as_secs_f32() * 24.0) % 360.0;
+            self.root_hue_f32 = (self.root_hue_f32 + delta.as_secs_f32() * 12.0) % 360.0;
             crate::theme::set_root_hue(self.root_hue_f32.round() as u16);
         }
 

@@ -2,7 +2,13 @@
 name = "ripl"
 version = "0.3.0"
 edition = "2024"
-description = "ripl — a terminal AI chat client. macOS only."
+description = "ripl — a terminal AI chat client and TUI framework. macOS only."
+license = "MIT"
+repository = "https://github.com/krry/ripl"
+homepage = "https://ripl.kerry.ink"
+readme = "README.md"
+keywords = ["tui", "ai", "chat", "terminal", "ratatui"]
+categories = ["command-line-interface", "command-line-utilities"]
 
 [lib]
 name = "ripl"

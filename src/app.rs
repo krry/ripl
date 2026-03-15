@@ -779,10 +779,6 @@ fn to_fish_text(text: &str) -> String {
     text.replace('·', " [pause] ")
 }
 
-pub fn strip_audio_tags_pub(text: &str) -> String {
-    strip_audio_tags(text)
-}
-
 /// Strip Fish.audio inline prosody tags (e.g. `[laugh]`, `[pause]`, `[breath]`)
 /// before display or sending to speech engines that don't understand them.
 /// Tags sent to Fish TTS are kept in the raw string — only call this for display

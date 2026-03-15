@@ -1,12 +1,12 @@
-pub mod app;
+pub(crate) mod app;
 pub mod aura;
 pub mod config;
 pub mod providers;
-pub mod scaffold;
+pub(crate) mod scaffold;
 pub mod session;
 pub mod speech;
 pub mod theme;
-pub mod ui;
+pub(crate) mod ui;
 
 use std::io;
 use std::path::PathBuf;

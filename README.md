@@ -1,8 +1,8 @@
 # ripl
 
-A shell-based agent chat client and TUI framework for macOS.
+A shell-based agent chat client and TUI framework.
 
-ripl provides a full-featured ratatui event loop wired to any LLM provider — Anthropic, OpenAI, Ollama, OpenRouter — with Fish Audio TTS/STT, ambient audio, hue-shifting themes, and a session cache. It ships as both a standalone binary (`ripl`) and a library for building your own AI terminal experiences on top of it.
+ripl provides a full-featured ratatui event loop wired to any LLM provider — Anthropic, OpenAI, Ollama, OpenRouter — with Fish Audio TTS/STT, ambient audio, hue-shifting themes, and a session cache. It ships as both a standalone binary (`ripl`) and a library for building your own AI shell experiences on top of it.
 
 Audio features require platform tools: `afplay`/`afinfo` on macOS, or `paplay`/`aplay`/`mpv`/`ffplay` on Linux. TTS uses `say` (macOS) or `espeak`/`espeak-ng` (Linux). STT recording uses `sox`.
 
@@ -77,7 +77,7 @@ ripl-tui = "0.3"
 
 ```rust
 use std::sync::Arc;
-use ripl::{RunOptions, with_terminal, run_in_terminal};
+use ripl::{RunOptions, with_terminal, run_in_terminal}; // "terminal" is the ratatui type
 use ripl::providers::Provider;
 
 fn main() -> color_eyre::eyre::Result<()> {

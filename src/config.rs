@@ -213,20 +213,26 @@ pub fn pair_provider(provider: &str) -> Result<(), std::io::Error> {
 
 fn default_config_template() -> String {
     r#"[provider]
+# name: anthropic | openai | openrouter | ollama
 name = "openai"
 model = "gpt-4o-mini"
+# api_key = "..."  # or set ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY
 
 [scaffold]
 bootstrap = true
 history_max_turns = 10
 
 [theme]
-root_hue = 217
+root_hue = 217   # 0–360, or set RIPL_ROOT_HUE
 
 [speech]
+# tts: fish | say | espeak | off
 tts = "say"
+# stt: fish | whisper | off
 stt = "whisper"
 push_to_talk = true
+# fish_api_key = "..."   # or set FISH_AUDIO_API_KEY
+# fish_voice_id = "..."  # or set FISH_AUDIO_VOICE_ID
 "#
     .to_string()
 }

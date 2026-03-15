@@ -3,3 +3,13 @@
 skills/
 AGENTS.md
 CONVENTIONS.md
+.ctx
+.aider*
+.amazonq/
+.antigravity/
+.clinerules/
+.continue/
+.cursor/
+.github/copilot-instructions.md
+.rules
+.windsurf/

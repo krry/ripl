@@ -27,7 +27,7 @@ pub fn fish_tts(text: &str, voice_id: Option<&str>) -> Result<f32, String> {
     let cache_path = tts_cache_path(text, &model, voice_id);
     if cache_path.exists() {
         let duration = afinfo_duration_seconds(&cache_path).unwrap_or_else(|| estimate_tts_seconds(text));
-        let _ = Command::new("afplay").arg(&cache_path).spawn();
+        let _ = play_audio(&cache_path);
         return Ok(duration);
     }
 
@@ -61,7 +61,7 @@ pub fn fish_tts(text: &str, voice_id: Option<&str>) -> Result<f32, String> {
     fs::write(&cache_path, &bytes).map_err(|e| format!("fish write error: {e}"))?;
 
     let duration = afinfo_duration_seconds(&cache_path).unwrap_or_else(|| estimate_tts_seconds(text));
-    let _ = Command::new("afplay").arg(&cache_path).spawn();
+    let _ = play_audio(&cache_path);
     Ok(duration)
 }
 
@@ -146,20 +146,43 @@ fn tts_cache_path(text: &str, model: &str, model_id: Option<&str>) -> PathBuf {
     tts_cache_dir().join(format!("fish_{}.mp3", key))
 }
 
-fn afinfo_duration_seconds(path: &std::path::Path) -> Option<f32> {
-    let output = Command::new("afinfo").arg(path).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("estimated duration:") {
-            let token = rest.trim().split_whitespace().next()?;
-            if let Ok(val) = token.parse::<f32>() {
-                return Some(val);
-            }
+fn play_audio(path: &PathBuf) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    { Command::new("afplay").arg(path).spawn()?; }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Try common Linux audio players in order of preference.
+        let players = ["paplay", "aplay", "mpv", "ffplay"];
+        for player in players {
+            let mut cmd = Command::new(player);
+            if player == "mpv" { cmd.arg("--no-video"); }
+            if player == "ffplay" { cmd.args(["-nodisp", "-autoexit"]); }
+            cmd.arg(path);
+            if cmd.spawn().is_ok() { break; }
         }
     }
-    None
+    Ok(())
+}
+
+fn afinfo_duration_seconds(path: &std::path::Path) -> Option<f32> {
+    #[cfg(not(target_os = "macos"))]
+    { let _ = path; return None; }
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("afinfo").arg(path).output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let line = line.trim();
+            if let Some(rest) = line.strip_prefix("estimated duration:") {
+                let token = rest.trim().split_whitespace().next()?;
+                if let Ok(val) = token.parse::<f32>() {
+                    return Some(val);
+                }
+            }
+        }
+        None
+    }
 }

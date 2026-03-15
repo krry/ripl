@@ -123,7 +123,7 @@ pub fn resolve_tts_mode(cfg: &Config) -> String {
     if std::env::var("FISH_AUDIO_API_KEY").is_ok() || std::env::var("FISH_API_KEY").is_ok() {
         return "fish".to_string();
     }
-    "say".to_string()
+    if cfg!(target_os = "macos") { "say".to_string() } else { "espeak".to_string() }
 }
 
 pub fn resolve_stt_mode(cfg: &Config) -> String {
@@ -226,7 +226,7 @@ history_max_turns = 10
 root_hue = 217   # 0–360, or set RIPL_ROOT_HUE
 
 [speech]
-# tts: fish | say | espeak | off
+# tts: fish | say (macOS) | espeak (Linux) | off
 tts = "say"
 # stt: fish | whisper | off
 stt = "whisper"

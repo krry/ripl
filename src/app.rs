@@ -741,9 +741,13 @@ impl App {
         match self.tts_mode {
             TtsMode::Off => {}
             TtsMode::Say => {
-                // macOS `say` doesn't understand Fish prosody tags — strip them.
                 let clean = strip_audio_tags(text);
+                #[cfg(target_os = "macos")]
                 let _ = std::process::Command::new("say").arg(clean).spawn();
+                #[cfg(not(target_os = "macos"))]
+                let _ = std::process::Command::new("espeak-ng").arg(clean)
+                    .spawn()
+                    .or_else(|_| std::process::Command::new("espeak").arg(clean).spawn());
             }
             TtsMode::Espeak => {
                 let clean = strip_audio_tags(text);

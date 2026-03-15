@@ -305,7 +305,7 @@ fn spawn_ambient(cmd: &PathBuf) -> Option<AmbientGuard> {
     // .js scripts are run with bun; everything else is executed directly.
     let child = if cmd.extension().and_then(|e| e.to_str()) == Some("js") {
         let bun = std::env::var("BUN_PATH")
-            .unwrap_or_else(|_| "/Users/kerry/.bun/bin/bun".to_string());
+            .unwrap_or_else(|_| "bun".to_string());
         std::process::Command::new(bun)
             .arg(cmd)
             .stdin(std::process::Stdio::null())

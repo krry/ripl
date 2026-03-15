@@ -9,13 +9,21 @@ use reqwest::blocking::multipart;
 use serde_json::json;
 use sha2::Digest;
 
+fn fish_api_key() -> Result<String, String> {
+    std::env::var("FISH_AUDIO_API_KEY")
+        .or_else(|_| std::env::var("FISH_API_KEY"))
+        .map_err(|_| "FISH_AUDIO_API_KEY not set".to_string())
+}
+
 pub fn has_fish_key() -> bool {
-    std::env::var("FISH_API_KEY").is_ok()
+    fish_api_key().is_ok()
 }
 
 pub fn fish_tts(text: &str, voice_id: Option<&str>) -> Result<f32, String> {
-    let api_key = std::env::var("FISH_API_KEY").map_err(|_| "FISH_API_KEY not set".to_string())?;
-    let model = std::env::var("FISH_TTS_MODEL").unwrap_or_else(|_| "s1".to_string());
+    let api_key = fish_api_key()?;
+    let model = std::env::var("FISH_AUDIO_MODEL")
+        .or_else(|_| std::env::var("FISH_TTS_MODEL"))
+        .unwrap_or_else(|_| "s1".to_string());
     let cache_path = tts_cache_path(text, &model, voice_id);
     if cache_path.exists() {
         let duration = afinfo_duration_seconds(&cache_path).unwrap_or_else(|| estimate_tts_seconds(text));
@@ -67,7 +75,7 @@ pub fn spawn_fish_tts(text: String, voice_id: Option<String>) -> Option<Receiver
 }
 
 pub fn fish_stt(_path: &std::path::Path) -> Result<String, String> {
-    let api_key = std::env::var("FISH_API_KEY").map_err(|_| "FISH_API_KEY not set".to_string())?;
+    let api_key = fish_api_key()?;
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(60))
         .build()

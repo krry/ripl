@@ -24,17 +24,12 @@ pub fn save(cache: &SessionCache) {
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);
     }
-    // Filter out system messages except Ouracle session markers (which are
-    // needed to resume a session across launches). Scaffold context is
-    // reloaded fresh from CWD files each time.
+    // Filter system messages — scaffold context is reloaded fresh on each launch.
     let filtered = SessionCache {
         conversation: cache
             .conversation
             .iter()
-            .filter(|m| {
-                m.role != crate::providers::Role::System
-                    || m.content.starts_with("ouracle:session:")
-            })
+            .filter(|m| m.role != crate::providers::Role::System)
             .cloned()
             .collect(),
         provider: cache.provider.clone(),

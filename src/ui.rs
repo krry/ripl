@@ -8,7 +8,6 @@ use ratatui::{
 use textwrap::wrap;
 
 use crate::app::{App, AppMode};
-use crate::providers::Role;
 use crate::scaffold::ScaffoldChoice;
 use crate::theme::{text_accent, text_fade, text_primary, text_secondary, text_warning};
 
@@ -106,15 +105,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         let priestess_area = center_chunks[0];
         let seeker_area = center_chunks[2];
 
-        let assistant_line = app
-            .conversation
-            .iter()
-            .rev()
-            .find(|m| m.role == Role::Assistant)
-            .map(|m| m.content.clone())
-            .unwrap_or_default();
-        let wrap_width = priestess_area.width as usize;
-        let wrapped_lines = wrap_messages(&[assistant_line], wrap_width);
+        let wrap_width = priestess_area.width.saturating_sub(4) as usize;
+        let wrapped_lines = wrap_messages(&[app.priestess_text().to_string()], wrap_width);
         draw_centered_lines_sparse(frame, priestess_area, &wrapped_lines, text_secondary(), true);
 
         let seeker_chunks = Layout::default()
@@ -126,20 +118,18 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
         draw_centered_line_with_suffix(frame, input_area, &app.input, text_primary(), stt_status_tag(app));
 
-        let user_line = app
-            .conversation
-            .iter()
-            .rev()
-            .find(|m| m.role == Role::User)
-            .map(|m| m.content.clone())
-            .unwrap_or_default();
-        let submissions = if user_line.is_empty() { Vec::new() } else { vec![user_line] };
-        draw_centered_lines_sparse(frame, submissions_area, &submissions, text_primary(), false);
+        if !app.seeker_fade_line.is_empty() {
+            let alpha = 1.0 - (app.seeker_fade_ms / app.seeker_fade_duration_ms).clamp(0.0, 1.0);
+            let fade_color = crate::theme::text_fade(alpha);
+            let submissions = wrap_messages(&[app.seeker_fade_line.clone()], submissions_area.width as usize);
+            draw_centered_lines_sparse(frame, submissions_area, &submissions, fade_color, false);
+        }
 
         let input_len = app.input.chars().count();
         let width = input_area.width as usize;
         let pad = width.saturating_sub(input_len) / 2;
-        let x = input_area.x + pad as u16 + input_len as u16;
+        let x_unclamped = input_area.x + pad as u16 + input_len as u16;
+        let x = x_unclamped.min(input_area.x + input_area.width.saturating_sub(1));
         let y = input_area.y;
         draw_cursor_glyph(frame, x, y, text_accent());
     }
@@ -210,14 +200,13 @@ fn draw_scaffold_prompt(frame: &mut Frame, selected: ScaffoldChoice) {
     let rect = ratatui::layout::Rect { x, y, width, height };
 
     frame.render_widget(Clear, rect);
-    let title = "Bootstrap scaffold?";
+    let title = "Prepare for Agents?";
     let mut lines = Vec::new();
-    lines.push("Missing README.md / .claude/CLAUDE.md / skills/README.md".to_string());
-    lines.push("Choose:".to_string());
-    lines.push(option_line("Leave", 'L', selected == ScaffoldChoice::Leave));
-    lines.push(option_line("Append", 'A', selected == ScaffoldChoice::Append));
-    lines.push(option_line("Overwrite", 'O', selected == ScaffoldChoice::Overwrite));
-    lines.push("Enter to confirm, Esc = Leave".to_string());
+    lines.push("Scaffold files already present. Do it:".to_string());
+    lines.push(option_line("[C]lean — overwrite and start fresh", 'C', selected == ScaffoldChoice::Overwrite));
+    lines.push(option_line("[D]irty — append and mix it up", 'D', selected == ScaffoldChoice::Append));
+    lines.push(option_line("[E]gotistically — I know what I'm doing", 'E', selected == ScaffoldChoice::Leave));
+    lines.push("Enter to confirm, Esc = skip".to_string());
     let body = lines.join("\n");
 
     let block = Paragraph::new(body)

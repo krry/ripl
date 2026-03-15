@@ -26,6 +26,7 @@ pub enum ApiResponse {
     TokenChunk { token: String },
     TurnComplete,
     Error { message: String },
+    Exit,
 }
 
 pub trait Provider: Send + Sync + 'static {

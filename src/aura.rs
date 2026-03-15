@@ -413,8 +413,8 @@ const CARDS_TIERS: [&[char]; 4] = [
 ];
 
 fn hole_geometry(area: Rect) -> (f32, f32, f32, f32) {
-    let target_half_w: f32 = 32.0;
-    let target_half_h: f32 = 9.0;
+    let target_half_w: f32 = 40.0;
+    let target_half_h: f32 = 12.0;
     let half_w = (area.width as f32 / 2.0).max(1.0);
     let half_h = (area.height as f32 / 2.0).max(1.0);
     let hx = target_half_w.min(half_w - 1.0).max(1.0);

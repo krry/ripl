@@ -73,29 +73,14 @@ pub fn resolve_provider_key(cfg: &Config) -> Option<String> {
             }
         }
     }
-    // Check provider-specific env vars in priority order.
-    let name = resolve_provider_name(cfg).unwrap_or_default();
-    match name.as_str() {
-        "ouracle" => {
-            if let Ok(key) = std::env::var("OURACLE_ACCESS_TOKEN") {
-                return Some(key);
-            }
-        }
-        "openai" => {
-            if let Ok(key) = std::env::var("OPENAI_API_KEY") {
-                return Some(key);
-            }
-        }
-        "openrouter" => {
-            if let Ok(key) = std::env::var("OPENROUTER_API_KEY") {
-                return Some(key);
-            }
-        }
-        _ => {
-            if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
-                return Some(key);
-            }
-        }
+    if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+        return Some(key);
+    }
+    if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+        return Some(key);
+    }
+    if let Ok(key) = std::env::var("OPENROUTER_API_KEY") {
+        return Some(key);
     }
     None
 }
@@ -117,9 +102,6 @@ pub fn resolve_provider_name(cfg: &Config) -> Option<String> {
     if std::env::var("OPENROUTER_API_KEY").is_ok() {
         return Some("openrouter".to_string());
     }
-    if std::env::var("OURACLE_ACCESS_TOKEN").is_ok() {
-        return Some("ouracle".to_string());
-    }
     None
 }
 
@@ -138,7 +120,7 @@ pub fn resolve_tts_mode(cfg: &Config) -> String {
             }
         }
     }
-    if std::env::var("FISH_API_KEY").is_ok() {
+    if std::env::var("FISH_AUDIO_API_KEY").is_ok() || std::env::var("FISH_API_KEY").is_ok() {
         return "fish".to_string();
     }
     "say".to_string()
@@ -152,7 +134,7 @@ pub fn resolve_stt_mode(cfg: &Config) -> String {
             }
         }
     }
-    if std::env::var("FISH_API_KEY").is_ok() {
+    if std::env::var("FISH_AUDIO_API_KEY").is_ok() || std::env::var("FISH_API_KEY").is_ok() {
         return "fish".to_string();
     }
     "whisper".to_string()
@@ -166,7 +148,10 @@ pub fn resolve_fish_voice_id(cfg: &Config) -> Option<String> {
             }
         }
     }
-    std::env::var("FISH_VOICE_ID").ok()
+    std::env::var("FISH_AUDIO_VOICE_GALADRIEL")
+        .or_else(|_| std::env::var("FISH_AUDIO_VOICE_ID"))
+        .or_else(|_| std::env::var("FISH_VOICE_ID"))
+        .ok()
 }
 
 pub fn open_config_file() -> Result<(), std::io::Error> {
@@ -188,15 +173,12 @@ pub fn open_config_file() -> Result<(), std::io::Error> {
 }
 
 pub fn pair_provider(provider: &str) -> Result<(), std::io::Error> {
-    if provider == "ouracle" {
-        return pair_ouracle();
-    }
     let url = match provider {
         "openai" => "https://platform.openai.com/api-keys",
         "anthropic" => "https://console.anthropic.com/settings/keys",
         "openrouter" => "https://openrouter.ai/keys",
         _ => {
-            println!("Usage: ripl pair <openai|anthropic|openrouter|ouracle>");
+            println!("Usage: ripl pair <openai|anthropic|openrouter>");
             return Ok(());
         }
     };
@@ -229,70 +211,6 @@ pub fn pair_provider(provider: &str) -> Result<(), std::io::Error> {
     Ok(())
 }
 
-fn pair_ouracle() -> Result<(), std::io::Error> {
-    use std::io::{Read, Write};
-
-    println!("Ouracle base URL [http://127.0.0.1:3737]:");
-    let mut base_url = String::new();
-    std::io::stdin().read_line(&mut base_url)?;
-    let base_url = base_url.trim();
-    let base_url = if base_url.is_empty() { "http://127.0.0.1:3737" } else { base_url };
-
-    println!("Seeker ID:");
-    let mut seeker_id = String::new();
-    std::io::stdin().read_line(&mut seeker_id)?;
-    let seeker_id = seeker_id.trim().to_string();
-
-    println!("Password:");
-    let mut password = String::new();
-    std::io::stdin().read_line(&mut password)?;
-    let password = password.trim().to_string();
-
-    if seeker_id.is_empty() || password.is_empty() {
-        eprintln!("Seeker ID and password required.");
-        return Ok(());
-    }
-
-    let url = format!("{}/auth/token", base_url.trim_end_matches('/'));
-    let body = serde_json::json!({ "seeker_id": seeker_id, "password": password });
-    let client = reqwest::blocking::Client::new();
-    match client.post(&url).json(&body).send() {
-        Ok(resp) if resp.status().is_success() => {
-            match resp.json::<serde_json::Value>() {
-                Ok(json) => {
-                    let token = json.get("access_token")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    if token.is_empty() {
-                        eprintln!("No access_token in response.");
-                        return Ok(());
-                    }
-                    let mut cfg = Config::load();
-                    cfg.provider = Some(ProviderConfig {
-                        name: Some("ouracle".to_string()),
-                        model: Some(base_url.to_string()),
-                        api_key: Some(token.to_string()),
-                    });
-                    let path = config_path();
-                    if let Some(dir) = path.parent() {
-                        fs::create_dir_all(dir)?;
-                    }
-                    let raw = toml::to_string_pretty(&cfg).unwrap_or_else(|_| default_config_template());
-                    fs::write(&path, raw)?;
-                    println!("Paired with Ouracle at {}. Token saved.", base_url);
-                }
-                Err(e) => eprintln!("Response parse error: {}", e),
-            }
-        }
-        Ok(resp) => {
-            let status = resp.status();
-            let body = resp.text().unwrap_or_default();
-            eprintln!("Auth failed ({}): {}", status, body);
-        }
-        Err(e) => eprintln!("Request error: {}", e),
-    }
-    Ok(())
-}
 
 fn default_config_template() -> String {
     r#"[provider]

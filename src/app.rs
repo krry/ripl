@@ -1,9 +1,10 @@
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::process::Child;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, MouseEventKind};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind};
 use ratatui::layout::Rect;
 
 use crate::aura::{Aura, AuraGlyphMode};
@@ -60,6 +61,18 @@ pub struct App {
     pub mouse_capture_dirty: bool,
     pub last_aura_area: Option<Rect>,
     root_hue_f32: f32,
+    // ── Seeker fade ───────────────────────────────────────────────────────────
+    pub seeker_fade_line: String,
+    pub seeker_fade_ms: f32,
+    pub seeker_fade_duration_ms: f32,
+    // ── Priestess typewriter ──────────────────────────────────────────────────
+    priestess_queue: VecDeque<char>,
+    pub priestess_display: String,
+    priestess_accum_ms: f32,
+    pub priestess_typing: bool,
+    priestess_elapsed_ms: f32,
+    priestess_target_duration_ms: Option<f32>,
+    priestess_line_chars: usize,
 }
 
 impl App {
@@ -114,7 +127,28 @@ impl App {
             mouse_capture_dirty: false,
             last_aura_area: None,
             root_hue_f32: crate::theme::current_root_hue() as f32,
+            seeker_fade_line: String::new(),
+            seeker_fade_ms: 0.0,
+            seeker_fade_duration_ms: 1200.0,
+            priestess_queue: VecDeque::new(),
+            priestess_display: String::new(),
+            priestess_accum_ms: 0.0,
+            priestess_typing: false,
+            priestess_elapsed_ms: 0.0,
+            priestess_target_duration_ms: None,
+            priestess_line_chars: 0,
         }
+    }
+
+    /// The current typed text for the priestess pane (call from UI layer).
+    pub fn priestess_text(&self) -> &str {
+        &self.priestess_display
+    }
+
+    /// Speak and type a line — used to present history on session resume.
+    pub fn greet(&mut self, raw: String) {
+        self.speak_line(&raw);
+        self.start_priestess(raw);
     }
 
     pub fn on_event(&mut self, event: &Event) -> bool {
@@ -125,6 +159,9 @@ impl App {
                 }
                 if *kind == KeyEventKind::Press {
                     if matches!(code, KeyCode::Char('q')) && modifiers.is_empty() {
+                        return true;
+                    }
+                    if matches!(code, KeyCode::Char('c')) && modifiers.contains(KeyModifiers::CONTROL) {
                         return true;
                     }
                     match code {
@@ -146,6 +183,8 @@ impl App {
                                 } else {
                                     self.messages.push(format!("You: {}", line));
                                     self.conversation.push(Message { role: Role::User, content: line.clone() });
+                                    self.seeker_fade_line = line.clone();
+                                    self.seeker_fade_ms = 1.0;
                                     self.outgoing = Some(line);
                                     self.mode = AppMode::Pending;
                                     self.session_dirty = true;
@@ -185,6 +224,14 @@ impl App {
     }
 
     pub fn on_tick(&mut self, delta: Duration) {
+        if self.seeker_fade_ms > 0.0 {
+            self.seeker_fade_ms += delta.as_secs_f32() * 1000.0;
+            if self.seeker_fade_ms >= self.seeker_fade_duration_ms {
+                self.seeker_fade_ms = 0.0;
+                self.seeker_fade_line.clear();
+            }
+        }
+
         self.aura.tick(delta);
 
         if self.auto_hue {
@@ -207,19 +254,29 @@ impl App {
         let factor = 1.0 - (-delta.as_secs_f32() * 3.0_f32).exp();
         self.voice_intensity = (self.voice_intensity + factor * (voice_target - self.voice_intensity)).clamp(0.0, 1.0);
 
-        // Tick-based Space PTT release inference (for terminals without KeyRelease).
+        // Tick-based Space PTT inference (for terminals without KeyRepeat/KeyRelease, e.g. SSH).
         if self.ptt_space_down {
             let elapsed_ms = self
                 .ptt_space_last_repeat
                 .map(|t| t.elapsed().as_millis())
                 .unwrap_or(u128::MAX);
-            if elapsed_ms > 300 {
-                let was_active_ptt = self.stt_active_ptt;
+            let no_repeats = self.ptt_space_repeat_count == 0;
+
+            if self.stt_active_ptt && elapsed_ms > 120 {
+                // Release detected — stop recording.
+                self.clear_ptt_space_state();
+                self.stop_stt_recording();
+            } else if !self.stt_active_ptt && no_repeats && elapsed_ms > 500 {
+                // No Repeat events but held 500ms — terminal lacks keyboard enhancement.
+                // Start recording; a second Press will stop it (see handle_space_ptt).
+                self.start_stt_recording();
+                self.stt_active_ptt = true;
+                self.ptt_space_last_repeat = Some(Instant::now());
+            } else if !self.stt_active_ptt && elapsed_ms > 120 {
+                // Short tap (with or without a few repeats) — push space.
                 let count = self.ptt_space_repeat_count;
                 self.clear_ptt_space_state();
-                if was_active_ptt {
-                    self.stop_stt_recording();
-                } else if count < 4 {
+                if count < 4 {
                     self.input.push(' ');
                 }
             }
@@ -260,14 +317,49 @@ impl App {
         if let Some(rx) = &self.tts_duration_rx {
             if let Ok(result) = rx.try_recv() {
                 match result {
-                    Ok(_) => {
+                    Ok(seconds) => {
                         self.tts_error = None;
+                        // Use TTS duration to sync typewriter pace.
+                        self.priestess_target_duration_ms = Some(seconds * 1000.0);
                     }
                     Err(err) => {
                         self.tts_error = Some(err);
                     }
                 }
                 self.tts_duration_rx = None;
+            }
+        }
+
+        // ── Priestess typewriter ──────────────────────────────────────────────
+        if !self.priestess_queue.is_empty() || self.priestess_typing {
+            let delta_ms = delta.as_secs_f32() * 1000.0;
+            self.priestess_accum_ms += delta_ms;
+            self.priestess_elapsed_ms += delta_ms;
+
+            loop {
+                if self.priestess_queue.is_empty() {
+                    break;
+                }
+                let interval = self.current_char_interval_ms();
+                if self.priestess_accum_ms < interval {
+                    break;
+                }
+                self.priestess_accum_ms -= interval;
+                if let Some(ch) = self.priestess_queue.pop_front() {
+                    self.priestess_display.push(ch);
+                }
+            }
+
+            // Update the last Assistant: line in messages in-place.
+            let typed = format!("Assistant: {}", self.priestess_display);
+            if let Some(last) = self.messages.last_mut() {
+                if last.starts_with("Assistant:") {
+                    *last = typed;
+                }
+            }
+
+            if self.priestess_queue.is_empty() {
+                self.priestess_typing = false;
             }
         }
     }
@@ -326,8 +418,18 @@ impl App {
         if code != KeyCode::Char(' ') {
             return false;
         }
+        // Don't intercept space as PTT when the user is actively typing.
+        if !self.input.is_empty() && !self.stt_recording {
+            return false;
+        }
         match kind {
             KeyEventKind::Press => {
+                // Second press while recording = release (for SSH/non-kitty terminals).
+                if self.stt_active_ptt && self.stt_recording {
+                    self.clear_ptt_space_state();
+                    self.stop_stt_recording();
+                    return true;
+                }
                 self.ptt_space_down = true;
                 self.ptt_space_repeat_count = 0;
                 self.ptt_space_last_repeat = Some(Instant::now());
@@ -396,9 +498,7 @@ impl App {
                     "say" => { self.tts_mode = crate::speech::TtsMode::Say; }
                     "espeak" => { self.tts_mode = crate::speech::TtsMode::Espeak; }
                     "fish" => { self.tts_mode = crate::speech::TtsMode::Fish; }
-                    _ => {
-                        self.messages.push("voice: off | say | espeak | fish".to_string());
-                    }
+                    _ => { self.say(format!("voice: {} (off|say|espeak|fish)", match self.tts_mode { crate::speech::TtsMode::Off => "off", crate::speech::TtsMode::Say => "say", crate::speech::TtsMode::Espeak => "espeak", crate::speech::TtsMode::Fish => "fish" })); }
                 }
             }
             "/stt" => {
@@ -407,9 +507,7 @@ impl App {
                     "off" => { self.stt_mode = crate::speech::SttMode::Off; }
                     "whisper" => { self.stt_mode = crate::speech::SttMode::Whisper; }
                     "fish" => { self.stt_mode = crate::speech::SttMode::Fish; }
-                    _ => {
-                        self.messages.push("stt: off | whisper | fish".to_string());
-                    }
+                    _ => { self.say(format!("stt: {} (off|whisper|fish)", match self.stt_mode { crate::speech::SttMode::Off => "off", crate::speech::SttMode::Whisper => "whisper", crate::speech::SttMode::Fish => "fish" })); }
                 }
             }
             "/ptt" => {
@@ -417,9 +515,7 @@ impl App {
                 match arg {
                     "on" => { self.push_to_talk = true; }
                     "off" => { self.push_to_talk = false; }
-                    _ => {
-                        self.messages.push(format!("ptt: {}", if self.push_to_talk { "on" } else { "off" }));
-                    }
+                    _ => { self.say(format!("ptt: {}", if self.push_to_talk { "on" } else { "off" })); }
                 }
             }
             "/set" => {
@@ -433,18 +529,18 @@ impl App {
                                 crate::theme::set_root_hue(v);
                                 self.root_hue_f32 = v as f32;
                                 self.auto_hue = false;
-                                self.messages.push(format!("color → {}", v));
+                                self.say(format!("color → {}", v));
                             }
-                            _ => { self.messages.push("usage: /set color <1-360>".to_string()); }
+                            _ => { self.say("usage: /set color <1-360>".to_string()); }
                         }
                     }
                     "pace" => {
                         match val.parse::<u8>() {
                             Ok(v) if (1..=10).contains(&v) => {
                                 self.pace = pace_to_scalar(v);
-                                self.messages.push(format!("pace → {}", v));
+                                self.say(format!("pace → {}", v));
                             }
-                            _ => { self.messages.push("usage: /set pace <1-10>".to_string()); }
+                            _ => { self.say("usage: /set pace <1-10>".to_string()); }
                         }
                     }
                     "glyph" => {
@@ -459,7 +555,7 @@ impl App {
                             };
                             let name = glyph_mode_name(next);
                             self.aura.set_glyph_mode(next);
-                            self.messages.push(format!("glyph → {}", name));
+                            self.say(format!("glyph → {}", name));
                         } else {
                             let mode = match val {
                                 "braille"  => Some(AuraGlyphMode::Braille),
@@ -473,13 +569,13 @@ impl App {
                             match mode {
                                 Some(m) => {
                                     self.aura.set_glyph_mode(m);
-                                    self.messages.push(format!("glyph → {}", val));
+                                    self.say(format!("glyph → {}", val));
                                 }
-                                None => { self.messages.push("usage: /set glyph [braille|taz|math|mahjong|dominoes|cards]".to_string()); }
+                                None => { self.say("usage: /set glyph [braille|taz|math|mahjong|dominoes|cards]".to_string()); }
                             }
                         }
                     }
-                    _ => { self.messages.push("usage: /set color|pace|glyph <value>".to_string()); }
+                    _ => { self.say("usage: /set color|pace|glyph <value>".to_string()); }
                 }
             }
             "/mouse" => {
@@ -493,20 +589,18 @@ impl App {
                         self.mouse_capture = false;
                         self.mouse_capture_dirty = true;
                     }
-                    _ => {
-                        self.messages.push(format!("mouse: {}", if self.mouse_capture { "on" } else { "off" }));
-                    }
+                    _ => { self.say(format!("mouse: {}", if self.mouse_capture { "on" } else { "off" })); }
                 }
             }
             "/help" => {
-                self.messages.push("/clear — clear thread".to_string());
-                self.messages.push("/reset — clear thread and start new session".to_string());
-                self.messages.push("/set color <1-360> | pace <1-10> | glyph [braille|taz|math|mahjong|dominoes|cards]".to_string());
-                self.messages.push("/mouse [on|off] — mouse click ripples".to_string());
-                self.messages.push("/voice [off|say|espeak|fish] — TTS mode".to_string());
-                self.messages.push("/stt [off|whisper|fish] — STT mode".to_string());
-                self.messages.push("/ptt [on|off] — push-to-talk".to_string());
-                self.messages.push("/dev [on|off] — toggle chrome".to_string());
+                self.say([
+                    "/clear — clear thread",
+                    "/reset — new session",
+                    "/set color <1-360> | pace <1-10> | glyph [braille|taz|math|mahjong|dominoes|cards]",
+                    "/mouse [on|off]  /voice [off|say|espeak|fish]  /stt [off|whisper|fish]",
+                    "/ptt [on|off] — push-to-talk",
+                    "/dev [on|off] — toggle chrome",
+                ].join("\n"));
             }
             "/dev" => {
                 let arg = parts.get(1).map(|s| s.trim()).unwrap_or("toggle");
@@ -517,7 +611,9 @@ impl App {
                 }
             }
             _ => {
-                self.messages.push(format!("unknown command: {}  (try /help)", parts[0]));
+                // Unknown to RIPL — forward to the provider.
+                self.outgoing_command = Some(cmd.to_string());
+                self.mode = AppMode::Pending;
             }
         }
     }
@@ -537,13 +633,13 @@ impl App {
         match event {
             Event::Key(KeyEvent { code, kind, .. }) if *kind == KeyEventKind::Press => {
                 match code {
-                    KeyCode::Char('l') | KeyCode::Char('L') => {
+                    KeyCode::Char('e') | KeyCode::Char('E') => {
                         self.scaffold_prompt = Some(ScaffoldChoice::Leave);
                     }
-                    KeyCode::Char('a') | KeyCode::Char('A') => {
+                    KeyCode::Char('d') | KeyCode::Char('D') => {
                         self.scaffold_prompt = Some(ScaffoldChoice::Append);
                     }
-                    KeyCode::Char('o') | KeyCode::Char('O') => {
+                    KeyCode::Char('c') | KeyCode::Char('C') => {
                         self.scaffold_prompt = Some(ScaffoldChoice::Overwrite);
                     }
                     KeyCode::Enter => {
@@ -572,9 +668,10 @@ impl App {
                     self.streaming = true;
                     self.assistant_buffer.clear();
                     self.mode = AppMode::Streaming;
+                    // Placeholder — replaced by typewriter on TurnComplete.
+                    self.messages.push("Assistant: …".to_string());
                 }
                 self.assistant_buffer.push_str(&token);
-                self.update_streaming_line();
             }
             ApiResponse::TurnComplete => {
                 if self.streaming {
@@ -584,8 +681,8 @@ impl App {
                         self.conversation.push(Message { role: Role::Assistant, content: content.clone() });
                         self.session_dirty = true;
                         self.speak_line(&content);
+                        self.start_priestess(content);
                     }
-                    self.update_streaming_line();
                 }
                 self.mode = AppMode::Ready;
             }
@@ -594,24 +691,46 @@ impl App {
                 self.messages.push(format!("Error: {}", message));
                 self.mode = AppMode::Ready;
             }
+            ApiResponse::Exit => {
+                self.mode = AppMode::Ready;
+            }
         }
     }
 
-    fn update_streaming_line(&mut self) {
-        let line = if self.assistant_buffer.trim().is_empty() {
-            String::new()
-        } else {
-            format!("Assistant: {}", self.assistant_buffer.trim())
-        };
+    /// Push text to the dev thread and display it via the priestess typewriter.
+    fn say(&mut self, text: String) {
+        self.messages.push(text.clone());
+        self.start_priestess(text);
+    }
+
+    fn start_priestess(&mut self, raw: String) {
+        let display = strip_audio_tags(raw.trim());
+        self.priestess_line_chars = display.chars().count().max(1);
+        self.priestess_queue = display.chars().collect();
+        self.priestess_display.clear();
+        self.priestess_accum_ms = 0.0;
+        self.priestess_elapsed_ms = 0.0;
+        self.priestess_target_duration_ms = None;
+        self.priestess_typing = true;
+        // Replace the streaming placeholder or push a new line.
         if let Some(last) = self.messages.last_mut() {
             if last.starts_with("Assistant:") {
-                *last = line;
+                *last = "Assistant: ".to_string();
                 return;
             }
         }
-        if !line.is_empty() {
-            self.messages.push(line);
+        self.messages.push("Assistant: ".to_string());
+    }
+
+    fn current_char_interval_ms(&self) -> f32 {
+        if let Some(target_ms) = self.priestess_target_duration_ms {
+            let typed = self.priestess_display.chars().count();
+            let remaining = self.priestess_line_chars.saturating_sub(typed).max(1) as f32;
+            let remaining_ms = (target_ms - self.priestess_elapsed_ms).max(0.0);
+            return (remaining_ms / remaining).clamp(20.0, 200.0);
         }
+        // Golden-ratio base pace: 61.8ms / pace_scalar
+        (61.803_399 / self.pace).clamp(20.0, 200.0)
     }
 
     fn speak_line(&mut self, line: &str) {
@@ -622,14 +741,18 @@ impl App {
         match self.tts_mode {
             TtsMode::Off => {}
             TtsMode::Say => {
-                let _ = std::process::Command::new("say").arg(text).spawn();
+                // macOS `say` doesn't understand Fish prosody tags — strip them.
+                let clean = strip_audio_tags(text);
+                let _ = std::process::Command::new("say").arg(clean).spawn();
             }
             TtsMode::Espeak => {
-                let _ = std::process::Command::new("espeak").arg(text).spawn();
+                let clean = strip_audio_tags(text);
+                let _ = std::process::Command::new("espeak").arg(clean).spawn();
             }
             TtsMode::Fish => {
+                // Fish.audio interprets prosody tags — enrich typography before sending.
                 self.tts_error = None;
-                self.tts_duration_rx = fish::spawn_fish_tts(text.to_string(), self.tts_voice_id.clone());
+                self.tts_duration_rx = fish::spawn_fish_tts(to_fish_text(text), self.tts_voice_id.clone());
             }
         }
     }
@@ -649,4 +772,43 @@ fn glyph_mode_name(mode: AuraGlyphMode) -> &'static str {
 fn pace_to_scalar(pace: u8) -> f32 {
     let p = pace.clamp(1, 10) as f32;
     0.6 + (p - 1.0) * (2.4 - 0.6) / 9.0
+}
+
+/// Convert typographic characters to Fish.audio prosody tags before TTS.
+fn to_fish_text(text: &str) -> String {
+    text.replace('·', " [pause] ")
+}
+
+pub fn strip_audio_tags_pub(text: &str) -> String {
+    strip_audio_tags(text)
+}
+
+/// Strip Fish.audio inline prosody tags (e.g. `[laugh]`, `[pause]`, `[breath]`)
+/// before display or sending to speech engines that don't understand them.
+/// Tags sent to Fish TTS are kept in the raw string — only call this for display
+/// and non-Fish speech.
+fn strip_audio_tags(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '[' {
+            let mut inner = String::new();
+            let mut closed = false;
+            for c in chars.by_ref() {
+                if c == ']' { closed = true; break; }
+                inner.push(c);
+            }
+            let is_tag = closed
+                && !inner.is_empty()
+                && inner.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '=' || c == '.' || c == ' ' || c == '-' || c == ',');
+            if !is_tag {
+                result.push('[');
+                result.push_str(&inner);
+                if closed { result.push(']'); }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result.trim().to_string()
 }

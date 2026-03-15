@@ -32,12 +32,26 @@ pub enum ScaffoldChoice {
     Overwrite,
 }
 
-pub fn detect_and_prompt() -> Option<ScaffoldChoice> {
+/// What the scaffold check determined.
+pub enum ScaffoldState {
+    /// All files present — nothing to do.
+    NoneNeeded,
+    /// All files absent — write them silently, no dialog.
+    AutoWrite,
+    /// Some files exist — ask the user what to do.
+    Prompt,
+}
+
+pub fn detect_scaffold() -> ScaffoldState {
     let files = scaffold_files();
-    if files.iter().all(|p| p.exists()) {
-        return None;
+    let existing = files.iter().filter(|p| p.exists()).count();
+    if existing == files.len() {
+        ScaffoldState::NoneNeeded
+    } else if existing == 0 {
+        ScaffoldState::AutoWrite
+    } else {
+        ScaffoldState::Prompt
     }
-    Some(ScaffoldChoice::Leave)
 }
 
 pub fn apply_scaffold(choice: ScaffoldChoice) -> io::Result<()> {

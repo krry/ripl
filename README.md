@@ -11,7 +11,7 @@ ripl provides a full-featured ratatui event loop wired to any LLM provider — A
 ## Install
 
 ```sh
-cargo install ripl
+cargo install ripl-tui
 ```
 
 Requires a provider API key in your environment or `~/.ripl/config.toml`.
@@ -72,7 +72,7 @@ ripl reads these from your shell — no config file needed to get started.
 ```toml
 # Cargo.toml
 [dependencies]
-ripl = "0.3"
+ripl-tui = "0.3"
 ```
 
 ```rust

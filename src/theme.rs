@@ -1,7 +1,7 @@
 use ratatui::style::Color;
 use std::sync::{OnceLock, atomic::{AtomicU16, Ordering}};
 
-// Root hue (degrees on the color wheel). Override via OURACLE_ROOT_HUE (1..=360).
+// Root hue (degrees on the color wheel). Override via RIPL_ROOT_HUE (1..=360).
 const DEFAULT_ROOT_HUE: u16 = 217;
 static ROOT_HUE: AtomicU16 = AtomicU16::new(0);
 static ROOT_HUE_ENV: OnceLock<f32> = OnceLock::new();
@@ -87,7 +87,7 @@ fn root_hue() -> f32 {
         return override_hue as f32;
     }
     *ROOT_HUE_ENV.get_or_init(|| {
-        let val = std::env::var("OURACLE_ROOT_HUE")
+        let val = std::env::var("RIPL_ROOT_HUE")
             .ok()
             .and_then(|v| v.parse::<f32>().ok())
             .unwrap_or(DEFAULT_ROOT_HUE as f32);
@@ -105,7 +105,7 @@ pub fn current_root_hue() -> u16 {
     if override_hue > 0 {
         return override_hue;
     }
-    let val = std::env::var("OURACLE_ROOT_HUE")
+    let val = std::env::var("RIPL_ROOT_HUE")
         .ok()
         .and_then(|v| v.parse::<u16>().ok())
         .unwrap_or(DEFAULT_ROOT_HUE);

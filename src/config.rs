@@ -148,8 +148,7 @@ pub fn resolve_fish_voice_id(cfg: &Config) -> Option<String> {
             }
         }
     }
-    std::env::var("FISH_AUDIO_VOICE_GALADRIEL")
-        .or_else(|_| std::env::var("FISH_AUDIO_VOICE_ID"))
+    std::env::var("FISH_AUDIO_VOICE_ID")
         .or_else(|_| std::env::var("FISH_VOICE_ID"))
         .ok()
 }

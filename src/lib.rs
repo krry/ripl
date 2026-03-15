@@ -54,11 +54,12 @@ pub struct RunOptions {
     pub label: Option<String>,
     pub ambient_cmd: Option<PathBuf>,
     pub voice_id: Option<String>,
+    pub scaffold: bool,
 }
 
 impl Default for RunOptions {
     fn default() -> Self {
-        RunOptions { provider: None, label: None, ambient_cmd: None, voice_id: None }
+        RunOptions { provider: None, label: None, ambient_cmd: None, voice_id: None, scaffold: true }
     }
 }
 
@@ -184,7 +185,7 @@ pub fn run_in_terminal(
             app.greet(content);
         }
     }
-    if scaffold_bootstrap_enabled(&cfg) {
+    if opts.scaffold && scaffold_bootstrap_enabled(&cfg) {
         match scaffold::detect_scaffold() {
             scaffold::ScaffoldState::AutoWrite => {
                 let _ = scaffold::apply_scaffold(scaffold::ScaffoldChoice::Overwrite);

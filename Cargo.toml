@@ -1,5 +1,5 @@
 [package]
-name = "ripl"
+name = "ripl-tui"
 version = "0.3.0"
 edition = "2024"
 description = "ripl — a terminal AI chat client and TUI framework. macOS only."

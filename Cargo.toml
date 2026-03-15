@@ -2,6 +2,7 @@
 name = "ripl"
 version = "0.3.0"
 edition = "2024"
+description = "ripl — a terminal AI chat client. macOS only."
 
 [lib]
 name = "ripl"

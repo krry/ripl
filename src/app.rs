@@ -439,16 +439,10 @@ impl App {
                 if !self.ptt_space_down {
                     return false;
                 }
-                let elapsed_ms = self
-                    .ptt_space_last_repeat
-                    .map(|t| t.elapsed().as_millis())
-                    .unwrap_or(u128::MAX);
-                if elapsed_ms >= 150 {
-                    self.ptt_space_down = false;
-                    self.ptt_space_repeat_count = 0;
-                    self.ptt_space_last_repeat = None;
-                    return false;
-                }
+                // With Kitty protocol we get real Release events, so no elapsed-time
+                // bailout needed here — that was a non-Kitty workaround that breaks
+                // Ghostty because macOS's initial key-repeat delay (~225ms) exceeds
+                // the old 150ms threshold, clearing state before recording could start.
                 self.ptt_space_last_repeat = Some(Instant::now());
                 self.ptt_space_repeat_count += 1;
                 if self.ptt_space_repeat_count >= 4 && !self.stt_recording {

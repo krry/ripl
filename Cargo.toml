@@ -1,6 +1,6 @@
 [package]
 name = "ripl-tui"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 rust-version = "1.94"
 description = "ripl — a living, breathing TUI framework for AI chat in the shell."
@@ -10,6 +10,9 @@ homepage = "https://ripl.kerry.ink"
 readme = "README.md"
 keywords = ["tui", "ai", "chat", "terminal", "ratatui"]
 categories = ["command-line-interface", "command-line-utilities"]
+
+[package.metadata]
+icons = ["assets/icon-256.png"]
 
 [lib]
 name = "ripl"

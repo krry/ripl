@@ -138,6 +138,7 @@ pub fn run_in_terminal(
     let provider = opts.provider.or_else(|| build_provider(&cfg));
 
     let mut app = App::new();
+    app.provider = provider.clone();
     if std::env::var("RIPL_DEV").is_ok() {
         app.dev_mode = true;
     }

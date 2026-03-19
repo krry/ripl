@@ -34,6 +34,12 @@ pub trait Provider: Send + Sync + 'static {
     /// Called when the user issues a slash command not handled by the app.
     /// Provider streams responses via `tx` as if it were a normal turn.
     fn handle_command(&self, _cmd: &str, _tx: mpsc::Sender<ApiResponse>) {}
+
+    /// Optional: return extra help lines to display in response to `/help`.
+    /// Default implementation returns an empty slice.
+    fn help_lines(&self) -> &[&str] {
+        &[]
+    }
 }
 
 pub enum ProviderKind {

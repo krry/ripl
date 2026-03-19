@@ -8,9 +8,9 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, Mou
 use ratatui::layout::Rect;
 
 use crate::aura::{Aura, AuraGlyphMode};
-use crate::providers::{ApiResponse, Message, Role};
+use crate::providers::{ApiResponse, Message, Provider, Role};
 use crate::scaffold::ScaffoldChoice;
-use crate::speech::{fish, TtsMode, SttMode};
+use crate::speech::{fish, SttMode, TtsMode};
 use crate::speech::stt as stt_engine;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +54,7 @@ pub struct App {
     pub scaffold_choice: Option<ScaffoldChoice>,
     pub history_offset: usize,
     pub provider_label: Option<String>,
+    pub provider: Option<std::sync::Arc<dyn Provider>>, // NEW
     pub dev_mode: bool,
     pub pace: f32,
     pub auto_hue: bool,
@@ -120,6 +121,7 @@ impl App {
             scaffold_choice: None,
             history_offset: 0,
             provider_label: None,
+            provider: None,
             dev_mode: false,
             pace: pace_to_scalar(5),
             auto_hue: true,
@@ -512,64 +514,59 @@ impl App {
                     _ => { self.say(format!("ptt: {}", if self.push_to_talk { "on" } else { "off" })); }
                 }
             }
-            "/set" => {
-                let subparts: Vec<&str> = parts.get(1).unwrap_or(&"").split_whitespace().collect();
-                let key = subparts.first().copied().unwrap_or("");
-                let val = subparts.get(1).copied().unwrap_or("");
-                match key {
-                    "color" => {
-                        match val.parse::<u16>() {
-                            Ok(v) if (1..=360).contains(&v) => {
-                                crate::theme::set_root_hue(v);
-                                self.root_hue_f32 = v as f32;
-                                self.auto_hue = false;
-                                self.say(format!("color → {}", v));
-                            }
-                            _ => { self.say("usage: /set color <1-360>".to_string()); }
-                        }
+            "/color" => {
+                let val = parts.get(1).map(|s| s.trim()).unwrap_or("");
+                match val.parse::<u16>() {
+                    Ok(v) if (1..=360).contains(&v) => {
+                        crate::theme::set_root_hue(v);
+                        self.root_hue_f32 = v as f32;
+                        self.auto_hue = false;
+                        self.say(format!("color → {}", v));
                     }
-                    "pace" => {
-                        match val.parse::<u8>() {
-                            Ok(v) if (1..=10).contains(&v) => {
-                                self.pace = pace_to_scalar(v);
-                                self.say(format!("pace → {}", v));
-                            }
-                            _ => { self.say("usage: /set pace <1-10>".to_string()); }
-                        }
+                    _ => { self.say("usage: /color <1-360>".to_string()); }
+                }
+            }
+            "/pace" => {
+                let val = parts.get(1).map(|s| s.trim()).unwrap_or("");
+                match val.parse::<u8>() {
+                    Ok(v) if (1..=10).contains(&v) => {
+                        self.pace = pace_to_scalar(v);
+                        self.say(format!("pace → {}", v));
                     }
-                    "glyph" => {
-                        if val.is_empty() {
-                            let next = match self.aura.glyph_mode() {
-                                AuraGlyphMode::Braille  => AuraGlyphMode::Taz,
-                                AuraGlyphMode::Taz      => AuraGlyphMode::Math,
-                                AuraGlyphMode::Math     => AuraGlyphMode::Mahjong,
-                                AuraGlyphMode::Mahjong  => AuraGlyphMode::Dominoes,
-                                AuraGlyphMode::Dominoes => AuraGlyphMode::Cards,
-                                AuraGlyphMode::Cards    => AuraGlyphMode::Braille,
-                            };
-                            let name = glyph_mode_name(next);
-                            self.aura.set_glyph_mode(next);
-                            self.say(format!("glyph → {}", name));
-                        } else {
-                            let mode = match val {
-                                "braille"  => Some(AuraGlyphMode::Braille),
-                                "taz"      => Some(AuraGlyphMode::Taz),
-                                "math"     => Some(AuraGlyphMode::Math),
-                                "mahjong"  => Some(AuraGlyphMode::Mahjong),
-                                "dominoes" => Some(AuraGlyphMode::Dominoes),
-                                "cards"    => Some(AuraGlyphMode::Cards),
-                                _ => None,
-                            };
-                            match mode {
-                                Some(m) => {
-                                    self.aura.set_glyph_mode(m);
-                                    self.say(format!("glyph → {}", val));
-                                }
-                                None => { self.say("usage: /set glyph [braille|taz|math|mahjong|dominoes|cards]".to_string()); }
-                            }
+                    _ => { self.say("usage: /pace <1-10>".to_string()); }
+                }
+            }
+            "/glyph" => {
+                let val = parts.get(1).map(|s| s.trim()).unwrap_or("");
+                if val.is_empty() {
+                    let next = match self.aura.glyph_mode() {
+                        AuraGlyphMode::Braille  => AuraGlyphMode::Taz,
+                        AuraGlyphMode::Taz      => AuraGlyphMode::Math,
+                        AuraGlyphMode::Math     => AuraGlyphMode::Mahjong,
+                        AuraGlyphMode::Mahjong  => AuraGlyphMode::Dominoes,
+                        AuraGlyphMode::Dominoes => AuraGlyphMode::Cards,
+                        AuraGlyphMode::Cards    => AuraGlyphMode::Braille,
+                    };
+                    let name = glyph_mode_name(next);
+                    self.aura.set_glyph_mode(next);
+                    self.say(format!("glyph → {}", name));
+                } else {
+                    let mode = match val {
+                        "braille"  => Some(AuraGlyphMode::Braille),
+                        "taz"      => Some(AuraGlyphMode::Taz),
+                        "math"     => Some(AuraGlyphMode::Math),
+                        "mahjong"  => Some(AuraGlyphMode::Mahjong),
+                        "dominoes" => Some(AuraGlyphMode::Dominoes),
+                        "cards"    => Some(AuraGlyphMode::Cards),
+                        _ => None,
+                    };
+                    match mode {
+                        Some(m) => {
+                            self.aura.set_glyph_mode(m);
+                            self.say(format!("glyph → {}", val));
                         }
+                        None => { self.say("usage: /glyph [braille|taz|math|mahjong|dominoes|cards]".to_string()); }
                     }
-                    _ => { self.say("usage: /set color|pace|glyph <value>".to_string()); }
                 }
             }
             "/mouse" => {
@@ -587,14 +584,22 @@ impl App {
                 }
             }
             "/help" => {
-                self.say([
+                let mut lines = vec![
                     "/clear — clear thread",
                     "/reset — new session",
-                    "/set color <1-360> | pace <1-10> | glyph [braille|taz|math|mahjong|dominoes|cards]",
-                    "/mouse [on|off]  /voice [off|say|espeak|fish]  /stt [off|whisper|fish]",
+                    "/color <1-360> — set hue",
+                    "/pace <1-10> — set animation speed",
+                    "/glyph [braille|taz|math|mahjong|dominoes|cards] — set glyph set",
+                    "/mouse [on|off] — mouse capture",
+                    "/voice [off|say|espeak|fish] — TTS mode",
+                    "/stt [off|whisper|fish] — STT mode",
                     "/ptt [on|off] — push-to-talk",
                     "/dev [on|off] — toggle chrome",
-                ].join("\n"));
+                ];
+                if let Some(provider) = &self.provider {
+                    lines.extend(provider.help_lines());
+                }
+                self.say(lines.join("\n"));
             }
             "/dev" => {
                 let arg = parts.get(1).map(|s| s.trim()).unwrap_or("toggle");

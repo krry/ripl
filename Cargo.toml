@@ -1,6 +1,6 @@
 [package]
 name = "ripl-tui"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 rust-version = "1.94"
 description = "ripl — a living, breathing TUI framework for AI chat in the shell."
